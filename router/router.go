@@ -7,10 +7,6 @@ import (
 
 	"github.com/RinTanth/go-backend/app/auth"
 	authaccess "github.com/RinTanth/go-backend/app/auth/access"
-	"github.com/RinTanth/go-backend/app/member"
-	memberaccess "github.com/RinTanth/go-backend/app/member/access"
-	"github.com/RinTanth/go-backend/app/organization"
-	organizationaccess "github.com/RinTanth/go-backend/app/organization/access"
 	"github.com/RinTanth/go-backend/config"
 	"github.com/RinTanth/go-common/aesgcm"
 	"github.com/RinTanth/go-common/app"
@@ -56,8 +52,6 @@ func New(cfg config.Config, version, commit string, timeoutDuration time.Duratio
 	fs := commonfirestore.MustNewClient(ctx, newFirestoreConfig(cfg))
 
 	registerAuthRoutes(r, fs, httpClient, cfg, hash, aesgcm, tokenSigner)
-	registerOrganizationRoutes(r, fs, httpClient, cfg)
-	registerMemberRoutes(r, fs, aesgcm, httpClient, cfg, hash)
 
 	return r, func() {
 		fs.Close()
@@ -119,36 +113,6 @@ func registerAuthRoutes(r *gin.Engine, firestoreClient *commonfirestore.Client, 
 	{
 		authGroup.POST("/resolve-identity", authHandler.ResolveIdentify)
 		authGroup.POST("/issue-token", authHandler.IssueToken)
-	}
-}
-
-func registerOrganizationRoutes(r *gin.Engine, firestoreClient *commonfirestore.Client, httpClient *http.Client, cfg config.Config) {
-	organizationStorage := organizationaccess.NewOrganizationStorage(firestoreClient.Inner())
-	organizationHandlerCfg := organization.HandlerConfig{
-		OrganizationStorage: organizationStorage,
-	}
-	organizationHandler := organization.NewHandler(organizationHandlerCfg)
-
-	organizationGroup := r.Group("/api/v1/platform/organization")
-	{
-		organizationGroup.POST("/current", organizationHandler.GetCurrent)
-		organizationGroup.POST("/register", organizationHandler.RegisterOrganization)
-	}
-}
-
-func registerMemberRoutes(r *gin.Engine, firestoreClient *commonfirestore.Client, aesgcm aesgcm.Aesgcm, httpClient *http.Client, cfg config.Config, hash hash.HashManager) {
-	memberStorage := memberaccess.NewMemberStorage(firestoreClient.Inner())
-	memberHandlerCfg := member.HandlerConfig{
-		MemberStorage: memberStorage,
-		Aesgcm:        aesgcm,
-		Hash:          hash,
-	}
-	memberHandler := member.NewHandler(memberHandlerCfg)
-
-	memberGroup := r.Group("/api/v1/platform/member")
-	{
-		memberGroup.POST("/me", memberHandler.GetInfo)
-		memberGroup.POST("/register", memberHandler.RegisterMember)
 	}
 }
 
