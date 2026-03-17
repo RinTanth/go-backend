@@ -110,7 +110,7 @@ func registerAuthRoutes(r *gin.Engine, httpClient *http.Client, cfg config.Confi
 	}
 	authHandler := auth.NewHandler(authHandlerCfg)
 
-	authGroup := r.Group("/api/v1/platform/auth")
+	authGroup := r.Group("/api/v1/auth")
 	{
 		authGroup.POST("/resolve-identity", authHandler.ResolveIdentify)
 		authGroup.POST("/issue-token", authHandler.IssueToken)
