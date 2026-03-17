@@ -11,7 +11,7 @@ import (
 )
 
 type PostgresRepoer interface {
-	GetUserByEmail(ctx context.Context, hashedEmail string) (Member, error)
+	GetUserByEmail(ctx context.Context, hashedEmail string) (User, error)
 }
 
 type postgresRepo struct {
@@ -24,59 +24,62 @@ func NewPostgresRepo(pg *pgxpool.Pool) PostgresRepoer {
 	return &postgresRepo{pg: pg}
 }
 
-func (r *postgresRepo) GetUserByEmail(ctx context.Context, hashedEmail string) (Member, error) {
+func (r *postgresRepo) GetUserByEmail(ctx context.Context, hashedEmail string) (User, error) {
 	if len(hashedEmail) == 0 {
-		return Member{}, fmt.Errorf("hashed email is required")
+		return User{}, fmt.Errorf("hashed email is required")
 	}
 
 	query := `
-		SELECT member_id, username, encrypted_email, hashed_email, status, created_at, updated_at, deleted_at
-		FROM member
-		WHERE hashed_email = $1 AND deleted_at IS NULL
+		SELECT user_id, username, email, email_hashed, role, country, created_at, updated_at, deleted_at
+		FROM "user"
+		WHERE email_hashed = $1 AND deleted_at IS NULL
 		LIMIT 1
 	`
 
-	var member Member
+	var user User
 	err := r.pg.QueryRow(ctx, query, hashedEmail).Scan(
-		&member.MemberID,
-		&member.Username,
-		&member.EncryptedEmail,
-		&member.HashedEmail,
-		&member.Status,
-		&member.CreatedAt,
-		&member.UpdatedAt,
-		&member.DeletedAt,
+		&user.UserID,
+		&user.Username,
+		&user.Email,
+		&user.EmailHashed,
+		&user.Role,
+		&user.Country,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+		&user.DeletedAt,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return Member{}, fmt.Errorf("member not found")
+			return User{}, fmt.Errorf("user not found")
 		}
-		return Member{}, fmt.Errorf("failed to query member: %w", err)
+		return User{}, fmt.Errorf("failed to query user: %w", err)
 	}
 
-	return member, nil
+	return user, nil
 }
 
-type MemberStatusType string
+type UserRole string
 
-var (
-	MemberStatusActive    MemberStatusType = "ACTIVE"
-	MemberStatusSuspended MemberStatusType = "SUSPENDED"
+const (
+	UserRoleAdmin UserRole = "ADMIN"
+	UserRoleUser  UserRole = "USER"
+	UserRoleBot   UserRole = "BOT"
 )
 
-type Member struct {
-	MemberID       string           `db:"member_id" json:"memberId"`
-	Username       string           `db:"username" json:"username"`
-	EncryptedEmail string           `db:"encrypted_email" json:"encryptedEmail"`
-	HashedEmail    string           `db:"hashed_email" json:"hashedEmail"`
-	Status         MemberStatusType `db:"status" json:"status"`
-	CreatedAt      time.Time        `db:"created_at" json:"createdAt"`
-	UpdatedAt      time.Time        `db:"updated_at" json:"updatedAt"`
-	DeletedAt      *time.Time       `db:"deleted_at" json:"deletedAt,omitempty"`
+type User struct {
+	UserID      uuid.UUID  `db:"user_id" json:"userId"`
+	Username    string     `db:"username" json:"username"`
+	Email       string     `db:"email" json:"email"`
+	EmailHashed string     `db:"email_hashed" json:"emailHashed"`
+	Role        *UserRole  `db:"role" json:"role,omitempty"`
+	Country     *string    `db:"country" json:"country,omitempty"`
+	CreatedAt   time.Time  `db:"created_at" json:"createdAt"`
+	UpdatedAt   *time.Time `db:"updated_at" json:"updatedAt,omitempty"`
+	DeletedAt   *time.Time `db:"deleted_at" json:"deletedAt,omitempty"`
 }
 
-func (m *Member) GetID() uuid.UUID {
-	return uuid.MustParse(m.MemberID)
+func (u *User) GetID() uuid.UUID {
+	return u.UserID
 }
 
 type OrganizationMemberRoleType string

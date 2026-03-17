@@ -3,7 +3,7 @@ module github.com/RinTanth/go-backend
 go 1.25.0
 
 require (
-	github.com/RinTanth/go-common v0.0.0
+	github.com/RinTanth/go-common v0.0.1
 	github.com/caarlos0/env/v11 v11.4.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0

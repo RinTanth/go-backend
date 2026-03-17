@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/RinTanth/go-backend/app/auth"
+	"github.com/RinTanth/go-backend/app/auth/access"
 	authaccess "github.com/RinTanth/go-backend/app/auth/access"
 	"github.com/RinTanth/go-backend/config"
 	"github.com/RinTanth/go-common/aesgcm"
@@ -98,8 +99,10 @@ func registerAuthRoutes(r *gin.Engine, httpClient *http.Client, cfg config.Confi
 		httpClient,
 	)
 
+	authpg := access.NewPostgresRepo(pg)
+
 	authHandlerCfg := auth.HandlerConfig{
-		Pg:           pg,
+		Pg:           authpg,
 		GoogleClient: googleClient,
 		Hash:         hash,
 		Aesgcm:       aesgcm,
@@ -107,7 +110,7 @@ func registerAuthRoutes(r *gin.Engine, httpClient *http.Client, cfg config.Confi
 	}
 	authHandler := auth.NewHandler(authHandlerCfg)
 
-	authGroup := r.Group("/api/v1/auth")
+	authGroup := r.Group("/api/v1/platform/auth")
 	{
 		authGroup.POST("/resolve-identity", authHandler.ResolveIdentify)
 		authGroup.POST("/issue-token", authHandler.IssueToken)

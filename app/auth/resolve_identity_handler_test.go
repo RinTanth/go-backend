@@ -2,7 +2,6 @@ package auth_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -23,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,20 +30,19 @@ func TestResolveIdentity(t *testing.T) {
 
 	r := require.New(t)
 
-	memberID := uuid.New().String()
-	organizationID := uuid.New().String()
+	userID := uuid.New()
 	now := time.Date(2026, 1, 20, 10, 0, 0, 0, time.Local)
+	userRole := access.UserRoleAdmin
+	country := "US"
 
 	type mockArgs struct {
-		googleClient        *access_mocks.GoogleClientMock
-		memberStorage       *access_mocks.MemberStorageMock
-		organizationStorage *access_mocks.OrganizationStorageMock
-		hash                *hash_mocks.HashManagerMock
-		aesgcm              *aesgcm_mocks.AesgcmMock
+		googleClient *access_mocks.GoogleClienterMock
+		pg           *access_mocks.PostgresRepoerMock
+		hash         *hash_mocks.HashManagerMock
+		aesgcm       *aesgcm_mocks.AesgcmMock
 	}
 
 	type args struct {
-		ctx context.Context
 		req auth.ResolveIdentityRequest
 	}
 
@@ -51,21 +50,21 @@ func TestResolveIdentity(t *testing.T) {
 		err     bool
 		code    app.Code
 		Message app.Message
-		data    wrapper.ResponseOption[auth.ResolveIdentityResponse]
+		data    *auth.ResolveIdentityResponse
 	}
 
 	tests := []struct {
 		name    string
-		prepare func(m mockArgs, args args)
+		prepare func(m mockArgs)
 		args    args
 		want    want
 	}{
 		{
-			name: "success, case valid request",
-			prepare: func(m mockArgs, args args) {
+			name: "success, case valid request with existing user",
+			prepare: func(m mockArgs) {
 				m.googleClient.
 					EXPECT().
-					ValidateAccessToken(args.ctx, args.req.GoogleAccessToken).
+					ValidateAccessToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleTokenInfoResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleTokenInfoResponse{
@@ -75,7 +74,7 @@ func TestResolveIdentity(t *testing.T) {
 
 				m.googleClient.
 					EXPECT().
-					GetUserProfile(args.ctx, args.req.GoogleAccessToken).
+					GetUserProfile(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleUserProfileResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleUserProfileResponse{
@@ -83,7 +82,9 @@ func TestResolveIdentity(t *testing.T) {
 						},
 					}, nil)
 
-				m.googleClient.EXPECT().RevokeToken(args.ctx, args.req.GoogleAccessToken).
+				m.googleClient.
+					EXPECT().
+					RevokeToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[any]{
 						Code: http.StatusOK,
 					}, nil)
@@ -93,29 +94,17 @@ func TestResolveIdentity(t *testing.T) {
 					HashSha256EncodePepper("test@example.com").
 					Return("hashed_email")
 
-				m.memberStorage.
+				m.pg.
 					EXPECT().
-					GetMemberByEmail(args.ctx, "hashed_email").
-					Return(access.Member{
-						MemberID:       memberID,
-						Username:       "testuser",
-						EncryptedEmail: "encrypted_email",
-						HashedEmail:    "hashed_email",
-						Status:         access.MemberStatusActive,
-						CreatedAt:      now,
-						UpdatedAt:      now,
-					}, nil)
-
-				m.organizationStorage.
-					EXPECT().
-					GetMemberOrganization(args.ctx, uuid.MustParse(memberID)).
-					Return(access.OrganizationMember{
-						OrganizationID: organizationID,
-						MemberID:       memberID,
-						Role:           access.OrganizationMemberRoleAdmin,
-						Status:         access.OrganizationMemberStatusActive,
-						CreatedAt:      now,
-						UpdatedAt:      now,
+					GetUserByEmail(mock.Anything, "hashed_email").
+					Return(access.User{
+						UserID:      userID,
+						Username:    "testuser",
+						Email:       "encrypted_email",
+						EmailHashed: "hashed_email",
+						Role:        &userRole,
+						Country:     &country,
+						CreatedAt:   now,
 					}, nil)
 
 				m.aesgcm.
@@ -132,30 +121,24 @@ func TestResolveIdentity(t *testing.T) {
 				err:     false,
 				code:    app.CodeSuccess,
 				Message: app.MessageSuccess,
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusOK,
-					Code:       app.CodeSuccess,
-					Message:    app.MessageSuccess,
-					Data: &auth.ResolveIdentityResponse{
-						IsMember:       true,
-						MemberID:       uuid.MustParse(memberID),
-						Username:       "testuser",
-						Email:          "test@example.com",
-						HashedEmail:    "hashed_email",
-						Status:         access.MemberStatusActive,
-						OrganizationID: uuid.MustParse(organizationID),
-						Role:           access.OrganizationMemberRoleAdmin,
-						ProfileImage:   "https://example.com/profile.jpg",
-					},
+				data: &auth.ResolveIdentityResponse{
+					IsUser:       true,
+					UserID:       userID,
+					Username:     "testuser",
+					Email:        "test@example.com",
+					HashedEmail:  "hashed_email",
+					Role:         &userRole,
+					Country:      &country,
+					ProfileImage: "https://example.com/profile.jpg",
 				},
 			},
 		},
 		{
 			name: "success, case valid request but revoke google token error",
-			prepare: func(m mockArgs, args args) {
+			prepare: func(m mockArgs) {
 				m.googleClient.
 					EXPECT().
-					ValidateAccessToken(args.ctx, args.req.GoogleAccessToken).
+					ValidateAccessToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleTokenInfoResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleTokenInfoResponse{
@@ -165,7 +148,7 @@ func TestResolveIdentity(t *testing.T) {
 
 				m.googleClient.
 					EXPECT().
-					GetUserProfile(args.ctx, args.req.GoogleAccessToken).
+					GetUserProfile(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleUserProfileResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleUserProfileResponse{
@@ -173,7 +156,9 @@ func TestResolveIdentity(t *testing.T) {
 						},
 					}, nil)
 
-				m.googleClient.EXPECT().RevokeToken(args.ctx, args.req.GoogleAccessToken).
+				m.googleClient.
+					EXPECT().
+					RevokeToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[any]{
 						Code: http.StatusInternalServerError,
 					}, errors.New("some-error"))
@@ -183,29 +168,17 @@ func TestResolveIdentity(t *testing.T) {
 					HashSha256EncodePepper("test@example.com").
 					Return("hashed_email")
 
-				m.memberStorage.
+				m.pg.
 					EXPECT().
-					GetMemberByEmail(args.ctx, "hashed_email").
-					Return(access.Member{
-						MemberID:       memberID,
-						Username:       "testuser",
-						EncryptedEmail: "encrypted_email",
-						HashedEmail:    "hashed_email",
-						Status:         access.MemberStatusActive,
-						CreatedAt:      now,
-						UpdatedAt:      now,
-					}, nil)
-
-				m.organizationStorage.
-					EXPECT().
-					GetMemberOrganization(args.ctx, uuid.MustParse(memberID)).
-					Return(access.OrganizationMember{
-						OrganizationID: organizationID,
-						MemberID:       memberID,
-						Role:           access.OrganizationMemberRoleAdmin,
-						Status:         access.OrganizationMemberStatusActive,
-						CreatedAt:      now,
-						UpdatedAt:      now,
+					GetUserByEmail(mock.Anything, "hashed_email").
+					Return(access.User{
+						UserID:      userID,
+						Username:    "testuser",
+						Email:       "encrypted_email",
+						EmailHashed: "hashed_email",
+						Role:        &userRole,
+						Country:     &country,
+						CreatedAt:   now,
 					}, nil)
 
 				m.aesgcm.
@@ -222,62 +195,70 @@ func TestResolveIdentity(t *testing.T) {
 				err:     false,
 				code:    app.CodeSuccess,
 				Message: app.MessageSuccess,
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusOK,
-					Code:       app.CodeSuccess,
-					Message:    app.MessageSuccess,
-					Data: &auth.ResolveIdentityResponse{
-						IsMember:       true,
-						MemberID:       uuid.MustParse(memberID),
-						Username:       "testuser",
-						Email:          "test@example.com",
-						HashedEmail:    "hashed_email",
-						Status:         access.MemberStatusActive,
-						OrganizationID: uuid.MustParse(organizationID),
-						Role:           access.OrganizationMemberRoleAdmin,
-						ProfileImage:   "https://example.com/profile.jpg",
-					},
+				data: &auth.ResolveIdentityResponse{
+					IsUser:       true,
+					UserID:       userID,
+					Username:     "testuser",
+					Email:        "test@example.com",
+					HashedEmail:  "hashed_email",
+					Role:         &userRole,
+					Country:      &country,
+					ProfileImage: "https://example.com/profile.jpg",
 				},
 			},
 		},
 		{
-			name: "success, case member not found (new user)",
-			prepare: func(m mockArgs, args args) {
+			name: "success, case valid request but revoke google token http error",
+			prepare: func(m mockArgs) {
 				m.googleClient.
 					EXPECT().
-					ValidateAccessToken(args.ctx, args.req.GoogleAccessToken).
+					ValidateAccessToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleTokenInfoResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleTokenInfoResponse{
-							Email: "newuser@example.com",
+							Email: "test@example.com",
 						},
 					}, nil)
 
 				m.googleClient.
 					EXPECT().
-					GetUserProfile(args.ctx, args.req.GoogleAccessToken).
+					GetUserProfile(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleUserProfileResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleUserProfileResponse{
-							Name:    "New User",
-							Picture: "https://example.com/newuser.jpg",
+							Picture: "https://example.com/profile.jpg",
 						},
 					}, nil)
 
-				m.googleClient.EXPECT().RevokeToken(args.ctx, args.req.GoogleAccessToken).
+				m.googleClient.
+					EXPECT().
+					RevokeToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[any]{
-						Code: http.StatusOK,
+						Code: http.StatusBadRequest,
 					}, nil)
 
 				m.hash.
 					EXPECT().
-					HashSha256EncodePepper("newuser@example.com").
+					HashSha256EncodePepper("test@example.com").
 					Return("hashed_email")
 
-				m.memberStorage.
+				m.pg.
 					EXPECT().
-					GetMemberByEmail(args.ctx, "hashed_email").
-					Return(access.Member{}, errors.New("member not found"))
+					GetUserByEmail(mock.Anything, "hashed_email").
+					Return(access.User{
+						UserID:      userID,
+						Username:    "testuser",
+						Email:       "encrypted_email",
+						EmailHashed: "hashed_email",
+						Role:        &userRole,
+						Country:     &country,
+						CreatedAt:   now,
+					}, nil)
+
+				m.aesgcm.
+					EXPECT().
+					Decrypt("encrypted_email").
+					Return("test@example.com", nil)
 			},
 			args: args{
 				req: auth.ResolveIdentityRequest{
@@ -288,22 +269,79 @@ func TestResolveIdentity(t *testing.T) {
 				err:     false,
 				code:    app.CodeSuccess,
 				Message: app.MessageSuccess,
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusOK,
-					Code:       app.CodeSuccess,
-					Message:    app.MessageSuccess,
-					Data: &auth.ResolveIdentityResponse{
-						IsMember:     false,
-						Email:        "newuser@example.com",
-						Username:     "New User",
-						ProfileImage: "https://example.com/newuser.jpg",
-					},
+				data: &auth.ResolveIdentityResponse{
+					IsUser:       true,
+					UserID:       userID,
+					Username:     "testuser",
+					Email:        "test@example.com",
+					HashedEmail:  "hashed_email",
+					Role:         &userRole,
+					Country:      &country,
+					ProfileImage: "https://example.com/profile.jpg",
+				},
+			},
+		},
+		{
+			name: "success, case user not found (new user)",
+			prepare: func(m mockArgs) {
+				m.googleClient.
+					EXPECT().
+					ValidateAccessToken(mock.Anything, "valid_google_access_token").
+					Return(httpclient.Response[access.GoogleTokenInfoResponse]{
+						Code: http.StatusOK,
+						Response: access.GoogleTokenInfoResponse{
+							Email: "newuser@example.com",
+						},
+					}, nil)
+
+				m.googleClient.
+					EXPECT().
+					GetUserProfile(mock.Anything, "valid_google_access_token").
+					Return(httpclient.Response[access.GoogleUserProfileResponse]{
+						Code: http.StatusOK,
+						Response: access.GoogleUserProfileResponse{
+							Name:    "New User",
+							Picture: "https://example.com/newuser.jpg",
+						},
+					}, nil)
+
+				m.googleClient.
+					EXPECT().
+					RevokeToken(mock.Anything, "valid_google_access_token").
+					Return(httpclient.Response[any]{
+						Code: http.StatusOK,
+					}, nil)
+
+				m.hash.
+					EXPECT().
+					HashSha256EncodePepper("newuser@example.com").
+					Return("hashed_email")
+
+				m.pg.
+					EXPECT().
+					GetUserByEmail(mock.Anything, "hashed_email").
+					Return(access.User{}, errors.New("user not found"))
+			},
+			args: args{
+				req: auth.ResolveIdentityRequest{
+					GoogleAccessToken: "valid_google_access_token",
+				},
+			},
+			want: want{
+				err:     false,
+				code:    app.CodeSuccess,
+				Message: app.MessageSuccess,
+				data: &auth.ResolveIdentityResponse{
+					IsUser:       false,
+					Email:        "newuser@example.com",
+					Username:     "New User",
+					ProfileImage: "https://example.com/newuser.jpg",
 				},
 			},
 		},
 		{
 			name: "fail, case invalid request body - missing google access token",
-			prepare: func(m mockArgs, args args) {
+			prepare: func(m mockArgs) {
 				// no calls
 			},
 			args: args{
@@ -315,19 +353,15 @@ func TestResolveIdentity(t *testing.T) {
 				err:     true,
 				code:    app.CodeBadRequest,
 				Message: app.MessageBadRequest,
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusBadRequest,
-					Code:       app.CodeBadRequest,
-					Message:    app.MessageBadRequest,
-				},
+				data:    nil,
 			},
 		},
 		{
 			name: "fail, case google client ValidateAccessToken error",
-			prepare: func(m mockArgs, args args) {
+			prepare: func(m mockArgs) {
 				m.googleClient.
 					EXPECT().
-					ValidateAccessToken(args.ctx, args.req.GoogleAccessToken).
+					ValidateAccessToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleTokenInfoResponse]{}, assert.AnError)
 			},
 			args: args{
@@ -339,19 +373,15 @@ func TestResolveIdentity(t *testing.T) {
 				err:     true,
 				code:    app.CodeUnauthorized,
 				Message: "Invalid or expired Google access token",
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusUnauthorized,
-					Code:       app.CodeUnauthorized,
-					Message:    "Invalid or expired Google access token",
-				},
+				data:    nil,
 			},
 		},
 		{
 			name: "fail, case google client ValidateAccessToken http error code >= 400",
-			prepare: func(m mockArgs, args args) {
+			prepare: func(m mockArgs) {
 				m.googleClient.
 					EXPECT().
-					ValidateAccessToken(args.ctx, args.req.GoogleAccessToken).
+					ValidateAccessToken(mock.Anything, "invalid_google_access_token").
 					Return(httpclient.Response[access.GoogleTokenInfoResponse]{
 						Code: http.StatusUnauthorized,
 						Response: access.GoogleTokenInfoResponse{
@@ -368,19 +398,15 @@ func TestResolveIdentity(t *testing.T) {
 				err:     true,
 				code:    app.CodeUnauthorized,
 				Message: "Invalid or expired Google access token",
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusUnauthorized,
-					Code:       app.CodeUnauthorized,
-					Message:    "Invalid or expired Google access token",
-				},
+				data:    nil,
 			},
 		},
 		{
 			name: "fail, case google client GetUserProfile error",
-			prepare: func(m mockArgs, args args) {
+			prepare: func(m mockArgs) {
 				m.googleClient.
 					EXPECT().
-					ValidateAccessToken(args.ctx, args.req.GoogleAccessToken).
+					ValidateAccessToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleTokenInfoResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleTokenInfoResponse{
@@ -390,7 +416,7 @@ func TestResolveIdentity(t *testing.T) {
 
 				m.googleClient.
 					EXPECT().
-					GetUserProfile(args.ctx, args.req.GoogleAccessToken).
+					GetUserProfile(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleUserProfileResponse]{}, assert.AnError)
 			},
 			args: args{
@@ -402,19 +428,15 @@ func TestResolveIdentity(t *testing.T) {
 				err:     true,
 				code:    app.CodeInternalError,
 				Message: app.MessageInternalError,
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusInternalServerError,
-					Code:       app.CodeInternalError,
-					Message:    app.MessageInternalError,
-				},
+				data:    nil,
 			},
 		},
 		{
 			name: "fail, case google client GetUserProfile http error code >= 400",
-			prepare: func(m mockArgs, args args) {
+			prepare: func(m mockArgs) {
 				m.googleClient.
 					EXPECT().
-					ValidateAccessToken(args.ctx, args.req.GoogleAccessToken).
+					ValidateAccessToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleTokenInfoResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleTokenInfoResponse{
@@ -424,7 +446,7 @@ func TestResolveIdentity(t *testing.T) {
 
 				m.googleClient.
 					EXPECT().
-					GetUserProfile(args.ctx, args.req.GoogleAccessToken).
+					GetUserProfile(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleUserProfileResponse]{
 						Code: http.StatusUnauthorized,
 					}, nil)
@@ -438,19 +460,15 @@ func TestResolveIdentity(t *testing.T) {
 				err:     true,
 				code:    app.CodeInternalError,
 				Message: app.MessageInternalError,
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusInternalServerError,
-					Code:       app.CodeInternalError,
-					Message:    app.MessageInternalError,
-				},
+				data:    nil,
 			},
 		},
 		{
-			name: "fail, case member storage GetMemberByEmail error",
-			prepare: func(m mockArgs, args args) {
+			name: "fail, case postgres GetUserByEmail error (not user not found)",
+			prepare: func(m mockArgs) {
 				m.googleClient.
 					EXPECT().
-					ValidateAccessToken(args.ctx, args.req.GoogleAccessToken).
+					ValidateAccessToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleTokenInfoResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleTokenInfoResponse{
@@ -460,7 +478,7 @@ func TestResolveIdentity(t *testing.T) {
 
 				m.googleClient.
 					EXPECT().
-					GetUserProfile(args.ctx, args.req.GoogleAccessToken).
+					GetUserProfile(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleUserProfileResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleUserProfileResponse{
@@ -468,7 +486,9 @@ func TestResolveIdentity(t *testing.T) {
 						},
 					}, nil)
 
-				m.googleClient.EXPECT().RevokeToken(args.ctx, args.req.GoogleAccessToken).
+				m.googleClient.
+					EXPECT().
+					RevokeToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[any]{
 						Code: http.StatusOK,
 					}, nil)
@@ -478,10 +498,10 @@ func TestResolveIdentity(t *testing.T) {
 					HashSha256EncodePepper("test@example.com").
 					Return("hashed_email")
 
-				m.memberStorage.
+				m.pg.
 					EXPECT().
-					GetMemberByEmail(args.ctx, "hashed_email").
-					Return(access.Member{}, assert.AnError)
+					GetUserByEmail(mock.Anything, "hashed_email").
+					Return(access.User{}, errors.New("database connection error"))
 			},
 			args: args{
 				req: auth.ResolveIdentityRequest{
@@ -492,86 +512,15 @@ func TestResolveIdentity(t *testing.T) {
 				err:     true,
 				code:    app.CodeInternalError,
 				Message: app.MessageInternalError,
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusInternalServerError,
-					Code:       app.CodeInternalError,
-					Message:    app.MessageInternalError,
-				},
-			},
-		},
-		{
-			name: "fail, case organization storage GetMemberOrganization error",
-			prepare: func(m mockArgs, args args) {
-				m.googleClient.
-					EXPECT().
-					ValidateAccessToken(args.ctx, args.req.GoogleAccessToken).
-					Return(httpclient.Response[access.GoogleTokenInfoResponse]{
-						Code: http.StatusOK,
-						Response: access.GoogleTokenInfoResponse{
-							Email: "test@example.com",
-						},
-					}, nil)
-
-				m.googleClient.
-					EXPECT().
-					GetUserProfile(args.ctx, args.req.GoogleAccessToken).
-					Return(httpclient.Response[access.GoogleUserProfileResponse]{
-						Code: http.StatusOK,
-						Response: access.GoogleUserProfileResponse{
-							Picture: "https://example.com/profile.jpg",
-						},
-					}, nil)
-
-				m.googleClient.EXPECT().RevokeToken(args.ctx, args.req.GoogleAccessToken).
-					Return(httpclient.Response[any]{
-						Code: http.StatusOK,
-					}, nil)
-
-				m.hash.
-					EXPECT().
-					HashSha256EncodePepper("test@example.com").
-					Return("hashed_email")
-
-				m.memberStorage.
-					EXPECT().
-					GetMemberByEmail(args.ctx, "hashed_email").
-					Return(access.Member{
-						MemberID:       memberID,
-						Username:       "testuser",
-						EncryptedEmail: "encrypted_email",
-						HashedEmail:    "hashed_email",
-						Status:         access.MemberStatusActive,
-						CreatedAt:      now,
-						UpdatedAt:      now,
-					}, nil)
-
-				m.organizationStorage.
-					EXPECT().
-					GetMemberOrganization(args.ctx, uuid.MustParse(memberID)).
-					Return(access.OrganizationMember{}, assert.AnError)
-			},
-			args: args{
-				req: auth.ResolveIdentityRequest{
-					GoogleAccessToken: "valid_google_access_token",
-				},
-			},
-			want: want{
-				err:     true,
-				code:    app.CodeInternalError,
-				Message: app.MessageInternalError,
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusInternalServerError,
-					Code:       app.CodeInternalError,
-					Message:    app.MessageInternalError,
-				},
+				data:    nil,
 			},
 		},
 		{
 			name: "fail, case aesgcm Decrypt error",
-			prepare: func(m mockArgs, args args) {
+			prepare: func(m mockArgs) {
 				m.googleClient.
 					EXPECT().
-					ValidateAccessToken(args.ctx, args.req.GoogleAccessToken).
+					ValidateAccessToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleTokenInfoResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleTokenInfoResponse{
@@ -581,7 +530,7 @@ func TestResolveIdentity(t *testing.T) {
 
 				m.googleClient.
 					EXPECT().
-					GetUserProfile(args.ctx, args.req.GoogleAccessToken).
+					GetUserProfile(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[access.GoogleUserProfileResponse]{
 						Code: http.StatusOK,
 						Response: access.GoogleUserProfileResponse{
@@ -589,7 +538,9 @@ func TestResolveIdentity(t *testing.T) {
 						},
 					}, nil)
 
-				m.googleClient.EXPECT().RevokeToken(args.ctx, args.req.GoogleAccessToken).
+				m.googleClient.
+					EXPECT().
+					RevokeToken(mock.Anything, "valid_google_access_token").
 					Return(httpclient.Response[any]{
 						Code: http.StatusOK,
 					}, nil)
@@ -599,29 +550,17 @@ func TestResolveIdentity(t *testing.T) {
 					HashSha256EncodePepper("test@example.com").
 					Return("hashed_email")
 
-				m.memberStorage.
+				m.pg.
 					EXPECT().
-					GetMemberByEmail(args.ctx, "hashed_email").
-					Return(access.Member{
-						MemberID:       memberID,
-						Username:       "testuser",
-						EncryptedEmail: "encrypted_email",
-						HashedEmail:    "hashed_email",
-						Status:         access.MemberStatusActive,
-						CreatedAt:      now,
-						UpdatedAt:      now,
-					}, nil)
-
-				m.organizationStorage.
-					EXPECT().
-					GetMemberOrganization(args.ctx, uuid.MustParse(memberID)).
-					Return(access.OrganizationMember{
-						OrganizationID: organizationID,
-						MemberID:       memberID,
-						Role:           access.OrganizationMemberRoleAdmin,
-						Status:         access.OrganizationMemberStatusActive,
-						CreatedAt:      now,
-						UpdatedAt:      now,
+					GetUserByEmail(mock.Anything, "hashed_email").
+					Return(access.User{
+						UserID:      userID,
+						Username:    "testuser",
+						Email:       "encrypted_email",
+						EmailHashed: "hashed_email",
+						Role:        &userRole,
+						Country:     &country,
+						CreatedAt:   now,
 					}, nil)
 
 				m.aesgcm.
@@ -638,11 +577,7 @@ func TestResolveIdentity(t *testing.T) {
 				err:     true,
 				code:    app.CodeInternalError,
 				Message: app.MessageInternalError,
-				data: wrapper.ResponseOption[auth.ResolveIdentityResponse]{
-					HTTPStatus: http.StatusInternalServerError,
-					Code:       app.CodeInternalError,
-					Message:    app.MessageInternalError,
-				},
+				data:    nil,
 			},
 		},
 	}
@@ -662,19 +597,18 @@ func TestResolveIdentity(t *testing.T) {
 			ctx.Request = req
 
 			m := mockArgs{
-				googleClient:        access_mocks.NewGoogleClientMock(t),
-				memberStorage:       access_mocks.NewMemberStorageMock(t),
-				organizationStorage: access_mocks.NewOrganizationStorageMock(t),
-				hash:                hash_mocks.NewHashManagerMock(t),
-				aesgcm:              aesgcm_mocks.NewAesgcmMock(t),
+				googleClient: access_mocks.NewGoogleClienterMock(t),
+				pg:           access_mocks.NewPostgresRepoerMock(t),
+				hash:         hash_mocks.NewHashManagerMock(t),
+				aesgcm:       aesgcm_mocks.NewAesgcmMock(t),
 			}
 
 			if tt.prepare != nil {
-				tt.args.ctx = ctx.Request.Context()
-				tt.prepare(m, tt.args)
+				tt.prepare(m)
 			}
 
 			h := auth.NewHandler(auth.HandlerConfig{
+				Pg:           m.pg,
 				GoogleClient: m.googleClient,
 				Hash:         m.hash,
 				Aesgcm:       m.aesgcm,
@@ -695,7 +629,7 @@ func TestResolveIdentity(t *testing.T) {
 				r.Equal(http.StatusOK, w.Code)
 				r.Equal(tt.want.code, resp.Code)
 				r.Equal(tt.want.Message, resp.Message)
-				r.Equal(tt.want.data.Data, resp.Data)
+				r.Equal(tt.want.data, resp.Data)
 			}
 		})
 	}

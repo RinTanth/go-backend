@@ -5,11 +5,10 @@ import (
 	"github.com/RinTanth/go-common/aesgcm"
 	"github.com/RinTanth/go-common/hash"
 	"github.com/RinTanth/go-common/token"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type HandlerConfig struct {
-	Pg           *pgxpool.Pool
+	Pg           access.PostgresRepoer
 	GoogleClient access.GoogleClienter
 	Hash         hash.HashManager
 	Aesgcm       aesgcm.Aesgcm
@@ -17,7 +16,7 @@ type HandlerConfig struct {
 }
 
 type handler struct {
-	pg           *pgxpool.Pool
+	pg           access.PostgresRepoer
 	googleClient access.GoogleClienter
 	hash         hash.HashManager
 	aesgcm       aesgcm.Aesgcm
