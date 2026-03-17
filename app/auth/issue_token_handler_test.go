@@ -12,7 +12,6 @@ import (
 	"github.com/RinTanth/go-common/wrapper"
 
 	"github.com/RinTanth/go-backend/app/auth"
-	"github.com/RinTanth/go-backend/app/auth/access"
 
 	token_mocks "github.com/RinTanth/go-common/token/mocks"
 	"github.com/gin-gonic/gin"
@@ -26,8 +25,7 @@ func TestIssueToken(t *testing.T) {
 
 	r := require.New(t)
 
-	memberID := uuid.New()
-	organizationID := uuid.New()
+	userId := uuid.New().String()
 
 	type mockArgs struct {
 		token *token_mocks.JWTSignerMock
@@ -61,9 +59,7 @@ func TestIssueToken(t *testing.T) {
 			},
 			args: args{
 				req: auth.IssueTokenRequest{
-					MemberID:       memberID,
-					OrganizationID: organizationID,
-					MemberRole:     access.OrganizationMemberRoleAdmin,
+					UserId: userId,
 				},
 			},
 			want: want{
@@ -81,61 +77,13 @@ func TestIssueToken(t *testing.T) {
 			},
 		},
 		{
-			name: "fail, case invalid request body - missing member id",
+			name: "fail, case invalid request body - missing user id",
 			prepare: func(m mockArgs, args args) {
 				// no token call
 			},
 			args: args{
 				req: auth.IssueTokenRequest{
-					// missing MemberID
-					OrganizationID: organizationID,
-					MemberRole:     access.OrganizationMemberRoleAdmin,
-				},
-			},
-			want: want{
-				err:     true,
-				code:    app.CodeBadRequest,
-				Message: app.MessageBadRequest,
-				data: wrapper.ResponseOption[auth.IssueTokenResponse]{
-					HTTPStatus: http.StatusBadRequest,
-					Code:       app.CodeBadRequest,
-					Message:    app.MessageBadRequest,
-				},
-			},
-		},
-		{
-			name: "fail, case invalid request body - missing organization id",
-			prepare: func(m mockArgs, args args) {
-				// no token call
-			},
-			args: args{
-				req: auth.IssueTokenRequest{
-					MemberID: memberID,
-					// missing OrganizationID
-					MemberRole: access.OrganizationMemberRoleAdmin,
-				},
-			},
-			want: want{
-				err:     true,
-				code:    app.CodeBadRequest,
-				Message: app.MessageBadRequest,
-				data: wrapper.ResponseOption[auth.IssueTokenResponse]{
-					HTTPStatus: http.StatusBadRequest,
-					Code:       app.CodeBadRequest,
-					Message:    app.MessageBadRequest,
-				},
-			},
-		},
-		{
-			name: "fail, case invalid request body - missing member role",
-			prepare: func(m mockArgs, args args) {
-				// no token call
-			},
-			args: args{
-				req: auth.IssueTokenRequest{
-					MemberID:       memberID,
-					OrganizationID: organizationID,
-					// missing MemberRole
+					// missing UserId
 				},
 			},
 			want: want{
@@ -159,9 +107,7 @@ func TestIssueToken(t *testing.T) {
 			},
 			args: args{
 				req: auth.IssueTokenRequest{
-					MemberID:       memberID,
-					OrganizationID: organizationID,
-					MemberRole:     access.OrganizationMemberRoleAdmin,
+					UserId: userId,
 				},
 			},
 			want: want{

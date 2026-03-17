@@ -8,7 +8,7 @@ import (
 	"github.com/RinTanth/go-common/httpclient"
 )
 
-type GoogleClient interface {
+type GoogleClienter interface {
 	ValidateAccessToken(ctx context.Context, accessToken string) (httpclient.Response[GoogleTokenInfoResponse], error)
 	GetUserProfile(ctx context.Context, accessToken string) (httpclient.Response[GoogleUserProfileResponse], error)
 	RevokeToken(ctx context.Context, accessToken string) (httpclient.Response[any], error)
@@ -21,7 +21,7 @@ type googleClient struct {
 	client       *http.Client
 }
 
-func NewGoogleClient(tokenInfoURL, userInfoURL, revokeURL string, client *http.Client) GoogleClient {
+func NewGoogleClient(tokenInfoURL, userInfoURL, revokeURL string, client *http.Client) GoogleClienter {
 	return &googleClient{
 		tokenInfoURL: tokenInfoURL,
 		userInfoURL:  userInfoURL,

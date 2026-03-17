@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -53,6 +54,7 @@ func main() {
 
 	go shutdown.Graceful(srv, gracefulShutdownDuration)
 
+	fmt.Printf("\n🚀 Server running on Port:%s\n\n", cfg.Server.Port)
 	slog.Info("run", "port", cfg.Server.Port)
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		slog.Error("HTTP server ListenAndServe", "error", err)

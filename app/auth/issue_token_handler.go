@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/RinTanth/go-backend/app/auth/access"
 	"github.com/RinTanth/go-common/app"
 	"github.com/RinTanth/go-common/token"
 	"github.com/RinTanth/go-common/wrapper"
@@ -13,9 +12,7 @@ import (
 )
 
 type IssueTokenRequest struct {
-	MemberID       uuid.UUID                         `json:"memberId" binding:"required"`
-	OrganizationID uuid.UUID                         `json:"organizationId" binding:"required"`
-	MemberRole     access.OrganizationMemberRoleType `json:"memberRole" binding:"required"`
+	UserId string `json:"userId" binding:"required"`
 }
 
 type IssueTokenResponse struct {
@@ -35,10 +32,8 @@ func (h *handler) IssueToken(c *gin.Context) {
 	}
 
 	claims := token.Claims{
-		Sub:            req.MemberID.String(),
-		Jti:            uuid.New().String(),
-		OrganizationID: req.OrganizationID.String(),
-		MemberRole:     string(req.MemberRole),
+		Sub: req.UserId,
+		Jti: uuid.New().String(),
 	}
 
 	accessToken, err := h.token.SignES256(claims)

@@ -36,7 +36,7 @@ import (
 type Config struct {
 	Server        Server
 	AccessControl AccessControl
-	Firestore     Firestore
+	Postgres      Postgres
 	Header        Header
 	JWT           JWT
 	GoogleClient  GoogleClient
@@ -64,11 +64,12 @@ type JWT struct {
 	PrivateKey  string        `env:"SECRET_JWT_PRIVATE_KEY,notEmpty"`
 }
 
-type Firestore struct {
-	ProjectID       string        `env:"GCP_PROJECT_ID,notEmpty"`
-	CredentialsJSON string        `env:"GCP_CREDENTIALS_JSON"`
-	DatabaseID      string        `env:"GCP_FIRESTORE_DATABASE_ID"`
-	ConnectTimeout  time.Duration `env:"GCP_FIRESTORE_CONNECT_TIMEOUT" envDefault:"30s"`
+type Postgres struct {
+	Host     string `env:"DB_HOST,notEmpty"`
+	Port     string `env:"DB_PORT,notEmpty"`
+	Name     string `env:"DB_NAME,notEmpty"`
+	User     string `env:"SECRET_DB_USER,notEmpty"`
+	Password string `env:"SECRET_DB_PASSWORD,notEmpty"`
 }
 
 type GoogleClient struct {
@@ -114,12 +115,6 @@ func C(envPrefix string) Config {
 			log.Fatal(err)
 		}
 		config.JWT.PrivateKey = rawJWTPrivateKey
-
-		rawCredentialsJSON, err := base64Coder.DecodeBase64(config.Firestore.CredentialsJSON)
-		if err != nil {
-			log.Fatal(err)
-		}
-		config.Firestore.CredentialsJSON = rawCredentialsJSON
 
 	})
 

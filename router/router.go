@@ -1,7 +1,6 @@
 package router
 
 import (
-	"context"
 	"net/http"
 	"time"
 
@@ -10,12 +9,13 @@ import (
 	"github.com/RinTanth/go-backend/config"
 	"github.com/RinTanth/go-common/aesgcm"
 	"github.com/RinTanth/go-common/app"
-	commonfirestore "github.com/RinTanth/go-common/firestore"
+	"github.com/RinTanth/go-common/database"
 	"github.com/RinTanth/go-common/hash"
 	"github.com/RinTanth/go-common/health"
 	"github.com/RinTanth/go-common/httpclient"
 	"github.com/RinTanth/go-common/middleware"
 	"github.com/RinTanth/go-common/token"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gin-gonic/gin"
 )
@@ -29,7 +29,7 @@ func New(cfg config.Config, version, commit string, timeoutDuration time.Duratio
 		r.Use(gin.Logger())
 	}
 
-	ctx := context.Background()
+	// ctx := context.Background()
 
 	r.GET("/liveness", health.Liveness(version, commit))
 	r.GET("/metrics", health.Metrics())
@@ -49,13 +49,23 @@ func New(cfg config.Config, version, commit string, timeoutDuration time.Duratio
 	hash := newHashManager(cfg)
 	aesgcm := newAesgcm(cfg)
 	tokenSigner := newTokenManager(cfg)
-	fs := commonfirestore.MustNewClient(ctx, newFirestoreConfig(cfg))
+	db := newPostgresManager(cfg)
 
-	registerAuthRoutes(r, fs, httpClient, cfg, hash, aesgcm, tokenSigner)
+	registerAuthRoutes(r, httpClient, cfg, db, hash, aesgcm, tokenSigner)
 
 	return r, func() {
-		fs.Close()
+		db.Close()
 	}
+}
+
+func newPostgresManager(cfg config.Config) *pgxpool.Pool {
+	return database.NewPostgresDB(database.PostgresConfig{
+		Host:     cfg.Postgres.Host,
+		Port:     cfg.Postgres.Port,
+		DBName:   cfg.Postgres.Name,
+		User:     cfg.Postgres.User,
+		Password: cfg.Postgres.Password,
+	})
 }
 
 func newTokenManager(cfg config.Config) token.JWTSigner {
@@ -80,16 +90,7 @@ func newAesgcm(cfg config.Config) aesgcm.Aesgcm {
 	})
 }
 
-func newFirestoreConfig(cfg config.Config) commonfirestore.Config {
-	return commonfirestore.Config{
-		ProjectID:       cfg.Firestore.ProjectID,
-		CredentialsJSON: []byte(cfg.Firestore.CredentialsJSON),
-		DatabaseID:      cfg.Firestore.DatabaseID,
-		ConnectTimeout:  cfg.Firestore.ConnectTimeout,
-	}
-}
-
-func registerAuthRoutes(r *gin.Engine, firestoreClient *commonfirestore.Client, httpClient *http.Client, cfg config.Config, hash hash.HashManager, aesgcm aesgcm.Aesgcm, token token.JWTSigner) {
+func registerAuthRoutes(r *gin.Engine, httpClient *http.Client, cfg config.Config, pg *pgxpool.Pool, hash hash.HashManager, aesgcm aesgcm.Aesgcm, token token.JWTSigner) {
 	googleClient := authaccess.NewGoogleClient(
 		cfg.GoogleClient.VerifyTokenURL,
 		cfg.GoogleClient.GetUserProfileURL,
@@ -98,6 +99,7 @@ func registerAuthRoutes(r *gin.Engine, firestoreClient *commonfirestore.Client, 
 	)
 
 	authHandlerCfg := auth.HandlerConfig{
+		Pg:           pg,
 		GoogleClient: googleClient,
 		Hash:         hash,
 		Aesgcm:       aesgcm,
@@ -105,7 +107,7 @@ func registerAuthRoutes(r *gin.Engine, firestoreClient *commonfirestore.Client, 
 	}
 	authHandler := auth.NewHandler(authHandlerCfg)
 
-	authGroup := r.Group("/api/v1/platform/auth")
+	authGroup := r.Group("/api/v1/auth")
 	{
 		authGroup.POST("/resolve-identity", authHandler.ResolveIdentify)
 		authGroup.POST("/issue-token", authHandler.IssueToken)
