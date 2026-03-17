@@ -1,0 +1,93 @@
+version: "2"
+linters:
+  enable:
+    - bodyclose
+    - forbidigo
+    - funlen
+    - gocognit
+    - gocritic
+    - gocyclo
+    - gomodguard
+    - gosec
+    - nestif
+    - predeclared
+    - rowserrcheck
+    - sqlclosecheck
+    - unparam
+    - wastedassign
+    - whitespace
+  settings:
+    funlen:
+      lines: 100
+      statements: 50
+      ignore-comments: true
+    gocognit:
+      min-complexity: 20
+    gocritic:
+      settings:
+        captLocal:
+          paramsOnly: false
+        underef:
+          skipRecvDeref: false
+    gomodguard:
+      blocked:
+        modules:
+          - github.com/golang/protobuf:
+              recommendations:
+                - google.golang.org/protobuf
+              reason: see https://developers.google.com/protocol-buffers/docs/reference/go/faq#modules
+          - github.com/satori/go.uuid:
+              recommendations:
+                - github.com/google/uuid
+              reason: satori's package is not maintained
+          - github.com/gofrs/uuid:
+              recommendations:
+                - github.com/google/uuid
+              reason: gofrs' package is not go module
+    gosec:
+      excludes:
+        - G303
+    rowserrcheck:
+      packages:
+        - github.com/jmoiron/sqlx
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - godot
+        source: (noinspection|TODO)
+      - linters:
+          - gocritic
+        source: //noinspection
+      - linters:
+          - unused
+        path: openapi.go
+      - linters:
+          - bodyclose
+          - dupl
+          - errcheck
+          - funlen
+          - gocognit
+          - goconst
+          - gosec
+          - noctx
+          - wrapcheck
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-same-issues: 50
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
